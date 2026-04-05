@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================================
+  FINANCE DASHBOARD API — Maven Project Descriptor
+  ============================================================================
+  Architectural Note:
+  We use Spring Boot 3.4.x (the latest stable 3.x line as of 2026-Q2) on
+  Java 21. The dependency list is intentionally curated—every dependency
+  here serves a clear purpose, and we avoid "starter bloat" by pulling
+  only the starters we actually need.
+  ============================================================================
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- ================================================================== -->
+    <!-- PARENT: Spring Boot Starter Parent                                  -->
+    <!-- Using the managed BOM from Spring Boot means we inherit sensible    -->
+    <!-- dependency versions, plugin configurations, and resource filtering. -->
+    <!-- ================================================================== -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.4</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.zorvyn</groupId>
+    <artifactId>finance-dashboard</artifactId>
+    <version>1.0.0</version>
+    <name>Finance Dashboard API</name>
+    <description>
+        Production-grade Finance Dashboard REST API built with Clean Architecture
+        principles, JWT-based RBAC, Redis caching, and comprehensive audit logging.
+    </description>
+
+    <!-- ================================================================== -->
+    <!-- PROPERTIES                                                          -->
+    <!-- Centralising versions here makes upgrades a single-line change and  -->
+    <!-- avoids version-mismatch bugs across transitive dependencies.        -->
+    <!-- ================================================================== -->
+    <properties>
+        <java.version>21</java.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <springdoc.version>2.8.5</springdoc.version>
+        <bucket4j.version>8.14.0</bucket4j.version>
+    </properties>
+
+    <dependencies>
+
+        <!-- ============================================================== -->
+        <!-- CORE WEB LAYER                                                  -->
+        <!-- Provides embedded Tomcat, Spring MVC, Jackson JSON binding.     -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- DATA ACCESS LAYER                                               -->
+        <!-- Spring Data JPA + Hibernate ORM for repository abstraction.     -->
+        <!-- We chose JPA Specifications for dynamic query composition over  -->
+        <!-- raw @Query annotations because Specifications are composable,   -->
+        <!-- type-safe, and testable in isolation.                           -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- POSTGRESQL DRIVER                                               -->
+        <!-- Runtime-only — we never reference driver classes directly.      -->
+        <!-- PostgreSQL was chosen for its ACID compliance, rich indexing,   -->
+        <!-- and superior support for financial-grade data integrity.         -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- DATABASE MIGRATIONS — FLYWAY                                    -->
+        <!-- Flyway provides versioned, repeatable, and auditable schema     -->
+        <!-- migrations. This is critical in a financial system where schema  -->
+        <!-- changes must be traceable and reproducible across environments. -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- SECURITY LAYER                                                  -->
+        <!-- Spring Security provides the authentication/authorization       -->
+        <!-- pipeline. We configure it for STATELESS sessions (no JSESSIONID)-->
+        <!-- because our API is consumed by SPAs and mobile clients that     -->
+        <!-- send JWTs on every request. Stateless sessions also simplify    -->
+        <!-- horizontal scaling — no sticky sessions required.               -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- JWT LIBRARY — JJWT (io.jsonwebtoken)                           -->
+        <!-- JJWT is the de facto standard for JWT handling in Java.         -->
+        <!-- We use HMAC-SHA512 for token signing — symmetric signing is     -->
+        <!-- appropriate here because the same service issues and validates  -->
+        <!-- tokens. For a microservices architecture, we'd switch to RSA.   -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- CACHING — REDIS                                                 -->
+        <!-- Redis is used as a distributed cache for dashboard summary      -->
+        <!-- endpoints. Financial dashboards are read-heavy; caching avoids  -->
+        <!-- redundant aggregate queries on every page load.                 -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- VALIDATION                                                      -->
+        <!-- Jakarta Bean Validation (Hibernate Validator impl) for          -->
+        <!-- declarative input validation. Centralising validation on DTOs   -->
+        <!-- keeps domain entities clean and ensures bad data is rejected    -->
+        <!-- at the API boundary, not deep inside business logic.            -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- API DOCUMENTATION — SPRINGDOC OPENAPI                          -->
+        <!-- Auto-generates interactive Swagger UI from our controller       -->
+        <!-- annotations. Pre-configured with a Bearer token scheme so       -->
+        <!-- reviewers can test authenticated endpoints directly from the    -->
+        <!-- browser without Postman.                                        -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- RATE LIMITING — BUCKET4J                                        -->
+        <!-- Token-bucket algorithm implementation for API rate limiting.     -->
+        <!-- We apply this specifically to dashboard summary endpoints to    -->
+        <!-- prevent abuse and protect expensive aggregate DB queries.        -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-core</artifactId>
+            <version>${bucket4j.version}</version>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- LOMBOK — Boilerplate Reduction                                  -->
+        <!-- Generates getters, setters, constructors, builders at compile   -->
+        <!-- time. Keeps entity and DTO classes focused on their data        -->
+        <!-- contracts rather than Java ceremony.                            -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ============================================================== -->
+        <!-- ASYNC SUPPORT                                                   -->
+        <!-- We need Spring's @Async infrastructure for background event     -->
+        <!-- processing (e.g., high-value transaction alerts). The starter   -->
+        <!-- web already brings in the core, but we explicitly note the      -->
+        <!-- dependency chain here for documentation purposes.               -->
+        <!-- ============================================================== -->
+
+        <!-- ============================================================== -->
+        <!-- TESTING                                                         -->
+        <!-- ============================================================== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- Exclude Lombok from the fat JAR — it's compile-time only -->
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

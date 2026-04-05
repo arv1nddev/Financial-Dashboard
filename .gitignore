@@ -1,0 +1,33 @@
+# ============================================================================
+# Finance Dashboard API — Git Ignore Rules
+# ============================================================================
+
+# Build output
+target/
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (may contain secrets)
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Maven wrapper (if not committed)
+!.mvn/wrapper/maven-wrapper.jar

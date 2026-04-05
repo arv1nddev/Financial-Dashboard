@@ -1,0 +1,108 @@
+# =============================================================================
+# FINANCE DASHBOARD — Local Development Infrastructure
+# =============================================================================
+# This Compose file provisions the two external dependencies our application
+# needs: PostgreSQL (primary data store) and Redis (caching layer).
+#
+# Design Decisions:
+#   1. We pin exact image versions (not :latest) for reproducible builds.
+#   2. Named volumes ensure data survives container restarts during dev.
+#   3. Health checks gate readiness — the app won't start against a
+#      half-initialised Postgres instance.
+#   4. A dedicated bridge network isolates our services from other
+#      Compose stacks running on the developer's machine.
+#
+# Usage:
+#   docker-compose up -d        → Start infrastructure
+#   docker-compose down -v      → Tear down + delete volumes (fresh start)
+# =============================================================================
+
+version: "3.9"
+
+services:
+
+  # ===========================================================================
+  # POSTGRESQL 16 — Primary Relational Data Store
+  # ===========================================================================
+  # Why PostgreSQL?
+  #   - ACID-compliant transactions are non-negotiable for financial data.
+  #   - Rich indexing (B-tree, GIN, GiST) supports our dynamic filtering
+  #     via JPA Specifications without needing a search engine.
+  #   - NUMERIC type gives us exact decimal arithmetic (no IEEE 754 drift).
+  # ===========================================================================
+  postgres:
+    image: postgres:16.4-alpine
+    container_name: fd-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: finance_dashboard
+      POSTGRES_USER: fd_admin
+      POSTGRES_PASSWORD: fd_s3cur3_p@ss!  # Override in production via .env
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready is the canonical readiness probe for PostgreSQL.
+      # We check every 5s with a 5s timeout and require 5 consecutive
+      # passes before declaring the service healthy.
+      test: ["CMD-SHELL", "pg_isready -U fd_admin -d finance_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fd-network
+
+  # ===========================================================================
+  # REDIS 7 — Caching Layer for Dashboard Summaries
+  # ===========================================================================
+  # Why Redis?
+  #   - Sub-millisecond reads for dashboard aggregations that would
+  #     otherwise require full table scans on every request.
+  #   - Built-in TTL eviction aligns perfectly with our cache invalidation
+  #     strategy (cache summaries for 5 minutes, then re-compute).
+  #   - Single-threaded event loop guarantees sequential command execution,
+  #     eliminating race conditions in our cache-aside pattern.
+  #
+  # Security Note:
+  #   - In production, enable Redis AUTH and TLS. For local dev, we keep
+  #     it open to reduce friction.
+  # ===========================================================================
+  redis:
+    image: redis:7.4-alpine
+    container_name: fd-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - fd-network
+
+# =============================================================================
+# NAMED VOLUMES
+# =============================================================================
+# Named volumes persist across `docker-compose down` (without -v flag).
+# This means your test data and cached values survive restarts.
+# =============================================================================
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+# A dedicated bridge network provides DNS-based service discovery
+# (e.g., `postgres:5432` from within the network) and isolates our
+# stack from other running containers.
+# =============================================================================
+networks:
+  fd-network:
+    driver: bridge

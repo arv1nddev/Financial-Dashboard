@@ -1,0 +1,180 @@
+# =============================================================================
+# FINANCE DASHBOARD API — Application Configuration
+# =============================================================================
+# This file uses Spring Boot's hierarchical property system. Values here are
+# defaults for local development. Production values are injected via
+# environment variables (12-Factor App methodology), which Spring Boot
+# automatically resolves using the ${ENV_VAR:default} syntax.
+#
+# Security Principle: NO secrets are hard-coded for production. Every
+# sensitive value has an environment variable override.
+# =============================================================================
+
+spring:
+  application:
+    name: finance-dashboard-api
+
+  # ===========================================================================
+  # DATASOURCE CONFIGURATION
+  # ===========================================================================
+  # HikariCP (Spring Boot's default pool) is configured with conservative
+  # defaults suitable for a financial application:
+  #   - max 20 connections prevents connection exhaustion on the DB side
+  #   - 30s timeout fails fast rather than queuing requests indefinitely
+  # ===========================================================================
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/finance_dashboard}
+    username: ${DB_USERNAME:fd_admin}
+    password: ${DB_PASSWORD:fd_s3cur3_p@ss!}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      pool-name: FD-HikariPool
+
+  # ===========================================================================
+  # JPA / HIBERNATE CONFIGURATION
+  # ===========================================================================
+  # Key decisions:
+  #   - ddl-auto=validate: Flyway owns the schema. Hibernate only validates
+  #     that entities match the actual DB schema. This prevents accidental
+  #     schema drift and ensures migrations are the single source of truth.
+  #   - open-in-view=false: Disables the anti-pattern of keeping a Hibernate
+  #     session open during view rendering. This forces us to fetch all
+  #     needed data in the service layer, preventing N+1 query surprises.
+  #   - show-sql in dev helps debugging but should be off in production.
+  # ===========================================================================
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: ${SHOW_SQL:true}
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
+
+  # ===========================================================================
+  # FLYWAY CONFIGURATION
+  # ===========================================================================
+  # Flyway runs before Hibernate validation, ensuring the schema is always
+  # up-to-date before the app starts. The baseline-on-migrate flag handles
+  # the case where we're applying Flyway to an existing database.
+  # ===========================================================================
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # ===========================================================================
+  # REDIS CONFIGURATION
+  # ===========================================================================
+  # Used exclusively for caching dashboard summaries. We use Spring's
+  # cache abstraction (@Cacheable) backed by Redis, which gives us
+  # distributed caching out of the box for multi-instance deployments.
+  # ===========================================================================
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  # ===========================================================================
+  # CACHE CONFIGURATION
+  # ===========================================================================
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000  # 5 minutes in milliseconds — balances freshness
+                             # with performance for dashboard aggregations
+      cache-null-values: false
+      key-prefix: "fd:"
+      use-key-prefix: true
+
+  # ===========================================================================
+  # ASYNC CONFIGURATION
+  # ===========================================================================
+  # We use Spring's @Async for background tasks like high-value transaction
+  # alerts. The thread pool is configured in AsyncConfig.java for finer
+  # control over queue depth and rejection policies.
+  # ===========================================================================
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 100
+      thread-name-prefix: "fd-async-"
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /api
+  # Graceful shutdown ensures in-flight requests complete before the
+  # server stops — critical for a financial API to avoid partial writes.
+  shutdown: graceful
+
+# =============================================================================
+# JWT CONFIGURATION
+# =============================================================================
+# Custom namespace for JWT properties. The secret MUST be overridden in
+# production via the JWT_SECRET environment variable. The default here
+# is a 512-bit key suitable ONLY for local development.
+#
+# Token lifetime: 24 hours. In production, consider shorter-lived access
+# tokens (15 min) with a refresh token rotation strategy.
+# =============================================================================
+app:
+  jwt:
+    secret: ${JWT_SECRET:dGhpcyBpcyBhIHZlcnkgbG9uZyBzZWNyZXQga2V5IGZvciBITUFDLVNIQTUxMiB0aGF0IGlzIGF0IGxlYXN0IDUxMiBiaXRzIGxvbmcgZm9yIHNlY3VyaXR5}
+    expiration-ms: ${JWT_EXPIRATION:86400000}
+    issuer: finance-dashboard-api
+
+# =============================================================================
+# RATE LIMITER CONFIGURATION
+# =============================================================================
+# Bucket4j token-bucket settings for the dashboard summary endpoints.
+# Tokens: 20 requests per minute per client IP.
+# This protects expensive aggregate queries from abuse.
+# =============================================================================
+  rate-limiter:
+    capacity: 20
+    refill-tokens: 20
+    refill-duration-seconds: 60
+
+# =============================================================================
+# SPRINGDOC / SWAGGER CONFIGURATION
+# =============================================================================
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+  show-actuator: false
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+# Structured logging levels. We keep Spring framework at WARN to reduce
+# noise, while keeping our application at DEBUG for development visibility.
+# =============================================================================
+logging:
+  level:
+    root: INFO
+    com.zorvyn.financedashboard: DEBUG
+    org.springframework.security: WARN
+    org.hibernate.SQL: ${SHOW_SQL:DEBUG}
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
